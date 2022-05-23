@@ -202,6 +202,9 @@ static int32_t tdefcolor(const int *, int *, int);
 static void tdeftran(char);
 static void tstrsequence(uchar);
 
+static void tsethov(char *);
+static void tclearhov(void);
+
 static void drawregion(int, int, int, int);
 
 static void selnormalize(void);
@@ -226,6 +229,7 @@ static STREscape strescseq;
 static int iofd = 1;
 static int cmdfd;
 static pid_t pid;
+static int linkcount = 0;
 
 static const uchar utfbyte[UTF_SIZ + 1] = {0x80,    0, 0xC0, 0xE0, 0xF0};
 static const uchar utfmask[UTF_SIZ + 1] = {0xC0, 0x80, 0xE0, 0xF0, 0xF8};
@@ -647,6 +651,93 @@ selclear(void)
 }
 
 void
+tsethov(char *id)
+{
+	int i, j;
+	for (i = 0; i < term.row-1; i++) {
+		for (j = 0; j < term.col-1; j++) {
+			if(term.line[i][j].hl.id != NULL) {
+				if (!strcmp(id, term.line[i][j].hl.id)) {
+					term.line[i][j].hl.hov = 1;
+					tsetdirt(i, i);
+				}
+			}
+		}
+	}
+}
+
+void
+tclearhov(void)
+{
+	int i, j;
+	for (i = 0; i < term.row-1; i++) {
+		for (j = 0; j < term.col-1; j++) {
+			if (term.line[i][j].hl.id != NULL) {
+				term.line[i][j].hl.hov = 0;
+				tsetdirt(i, i);
+			}
+		}
+	}
+}
+
+//TODO: figure out when to clean up highlights
+/*
+void
+tfreehl(Line *line)
+{
+}
+*/
+
+void
+hoverlink(int x, int y)
+{
+	static int onlink = 0;
+
+	if (term.line[y][x].hl.id != NULL) {
+		if (!onlink) {
+			tsethov(term.line[y][x].hl.id);
+		}
+		onlink = 1;
+	} else {
+		if (onlink) {
+			tclearhov();
+		}
+		onlink = 0;
+	}
+}
+
+void
+clicklink(int x, int y)
+{
+	if (term.line[y][x].hl.uri != NULL) {
+		openlink(term.line[y][x].hl.uri);
+	}
+}
+
+void
+openlink(char *uri)
+{
+	pid_t child, sid;
+	child = fork();
+	if (child == 0) {
+		if (fork() == 0) {
+			sid = setsid();
+			if (sid < 0)
+				exit(1);
+			close(STDIN_FILENO);
+			close(STDOUT_FILENO);
+			close(STDERR_FILENO);
+			execlp("xdg-open", "xdg-open", uri, NULL);
+		}
+		exit(1);
+	}
+	if (child > 0)
+		waitpid(child, NULL, 0);
+	else if (child < 0)
+		fprintf(stderr, "err: failed to spawn child\n");
+}
+
+void
 die(const char *errstr, ...)
 {
 	va_list ap;
@@ -1015,7 +1106,12 @@ treset(void)
 	term.c = (TCursor){{
 		.mode = ATTR_NULL,
 		.fg = defaultfg,
-		.bg = defaultbg
+		.bg = defaultbg,
+		.hl = (const Hyperlink){
+			.uri = NULL,
+			.id = NULL,
+			.hov = 0
+		}
 	}, .x = 0, .y = 0, .state = CURSOR_DEFAULT};
 
 	memset(term.tabs, 0, term.col * sizeof(*term.tabs));
@@ -1243,6 +1339,11 @@ tclearregion(int x1, int y1, int x2, int y2)
 			gp->bg = term.c.attr.bg;
 			gp->mode = 0;
 			gp->u = ' ';
+			gp->hl = (const Hyperlink){
+				.uri = NULL,
+				.id = NULL,
+				.hov = 0
+			};
 		}
 	}
 }
@@ -1863,7 +1964,7 @@ osc_color_response(int num, int index, int is_osc4)
 void
 strhandle(void)
 {
-	char *p = NULL, *dec;
+	char *p = NULL, *dec, *idstr;
 	int j, narg, par;
 	const struct { int idx; char *str; } osc_table[] = {
 		{ defaultfg, "foreground" },
@@ -1943,6 +2044,30 @@ strhandle(void)
 				 */
 				tfulldirt();
 			}
+			return;
+		case 8:
+			if (strlen(strescseq.args[2]) > 0) {
+				term.c.attr.hl.uri = xstrdup(strescseq.args[2]);
+			} else if (strlen(strescseq.args[1]) == 0) {
+				term.c.attr.hl.uri = NULL;
+				term.c.attr.hl.id = NULL;
+				return;
+			}
+			if (strlen(strescseq.args[1]) > 0) {
+				idstr = xstrdup(strescseq.args[1]);
+				if(strtok(idstr, "=") != NULL) {
+					if (!strcmp(idstr, "id")) {
+						term.c.attr.hl.id = xstrdup(strtok(NULL, "="));
+						free(idstr);
+						return;
+					}
+				}
+				free(idstr);
+			}
+			idstr = xmalloc(250);
+			snprintf(idstr, 250, "%d-%s", linkcount++, strescseq.args[2]);
+			term.c.attr.hl.id = xstrdup(idstr);
+			free(idstr);
 			return;
 		}
 		break;

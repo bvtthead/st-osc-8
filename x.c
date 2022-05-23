@@ -182,6 +182,7 @@ static void selclear_(XEvent *);
 static void selrequest(XEvent *);
 static void setsel(char *, Time);
 static void mousesel(XEvent *, int);
+static void mousehov(XEvent *);
 static void mousereport(XEvent *);
 static char *kmap(KeySym, uint);
 static int match(uint, uint);
@@ -362,6 +363,15 @@ mousesel(XEvent *e, int done)
 }
 
 void
+mousehov(XEvent *e)
+{
+	if (e->xbutton.state & (Button1Mask|Button2Mask|Button3Mask|Button4Mask|Button5Mask))
+		return;
+
+	hoverlink(evcol(e), evrow(e));
+}
+
+void
 mousereport(XEvent *e)
 {
 	int len, btn, code;
@@ -483,7 +493,7 @@ bpress(XEvent *e)
 	if (mouseaction(e, 0))
 		return;
 
-	if (btn == Button1) {
+	if (btn == Button1 && !(e->xbutton.state & ControlMask)) {
 		/*
 		 * If the user clicks below predefined timeouts specific
 		 * snapping behaviour is exposed.
@@ -709,6 +719,12 @@ brelease(XEvent *e)
 
 	if (mouseaction(e, 1))
 		return;
+
+	if (btn == Button1 && e->xbutton.state & ControlMask) {
+		clicklink(evcol(e), evrow(e));
+		return;
+	}
+
 	if (btn == Button1)
 		mousesel(e, 1);
 }
@@ -718,6 +734,12 @@ bmotion(XEvent *e)
 {
 	if (IS_SET(MODE_MOUSE) && !(e->xbutton.state & forcemousemod)) {
 		mousereport(e);
+		return;
+	}
+
+	mousehov(e);
+
+	if ((e->xbutton.state & ControlMask)) {
 		return;
 	}
 
@@ -1165,7 +1187,8 @@ xinit(int cols, int rows)
 	xw.attrs.bit_gravity = NorthWestGravity;
 	xw.attrs.event_mask = FocusChangeMask | KeyPressMask | KeyReleaseMask
 		| ExposureMask | VisibilityChangeMask | StructureNotifyMask
-		| ButtonMotionMask | ButtonPressMask | ButtonReleaseMask;
+		| PointerMotionMask | ButtonMotionMask | ButtonPressMask
+		| ButtonReleaseMask;
 	xw.attrs.colormap = xw.cmap;
 
 	if (!(opt_embed && (parent = strtol(opt_embed, NULL, 0))))
@@ -1497,6 +1520,25 @@ xdrawglyphfontspecs(const XftGlyphFontSpec *specs, Glyph base, int len, int x, i
 				width, 1);
 	}
 
+	/* Underline URIs when focused, otherwise underdash */
+	if (base.hl.hov) {
+		XftDrawRect(xw.draw, fg, winx, winy + dc.font.ascent * chscale + 1,
+				width, 1);
+	} else if (base.hl.id != NULL) {
+		XGCValues hlgcv = {
+			.foreground = fg->pixel,
+			.line_width = 1,
+			.line_style = LineOnOffDash,
+			.cap_style = CapNotLast,
+		};
+		GC hlgc = XCreateGC(xw.dpy, XftDrawDrawable(xw.draw),
+				GCForeground | GCLineStyle | GCLineWidth | GCCapStyle,
+				&hlgcv);
+		int liney = winy + dc.font.ascent * chscale + 1;
+		XDrawLine(xw.dpy, XftDrawDrawable(xw.draw), hlgc, winx, liney, winx + width, liney);
+		XFreeGC(xw.dpy, hlgc);
+	}
+
 	if (base.mode & ATTR_STRUCK) {
 		XftDrawRect(xw.draw, fg, winx, winy + 2 * dc.font.ascent * chscale / 3,
 				width, 1);
@@ -1645,6 +1687,21 @@ xstartdraw(void)
 	return IS_SET(MODE_VISIBLE);
 }
 
+uint8_t
+compareglyphs(Glyph a, Glyph b)
+{
+	uint8_t different = 0;
+	if (a.hl.id == NULL || b.hl.id == NULL) {
+		if (a.hl.id == b.hl.id) {
+			different = 0;
+		}
+		different = 1;
+	} else {
+		different = strcmp(a.hl.id, b.hl.id) ? 1 : 0;
+	}
+	return ATTRCMP(a, b) || different;
+}
+
 void
 xdrawline(Line line, int x1, int y1, int x2)
 {
@@ -1660,7 +1717,7 @@ xdrawline(Line line, int x1, int y1, int x2)
 			continue;
 		if (selected(x, y1))
 			new.mode ^= ATTR_REVERSE;
-		if (i > 0 && ATTRCMP(base, new)) {
+		if (i > 0 && compareglyphs(base, new)) {
 			xdrawglyphfontspecs(specs, base, i, ox, y1);
 			specs += i;
 			numspecs -= i;

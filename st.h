@@ -59,12 +59,19 @@ typedef unsigned short ushort;
 
 typedef uint_least32_t Rune;
 
+typedef struct {
+	char *id;
+	char *uri;
+	uint8_t hov;
+} Hyperlink;
+
 #define Glyph Glyph_
 typedef struct {
 	Rune u;           /* character code */
 	ushort mode;      /* attribute flags */
 	uint32_t fg;      /* foreground  */
 	uint32_t bg;      /* background  */
+	Hyperlink hl;
 } Glyph;
 
 typedef Glyph *Line;
@@ -104,6 +111,10 @@ void selstart(int, int, int);
 void selextend(int, int, int, int);
 int selected(int, int);
 char *getsel(void);
+
+void hoverlink(int, int);
+void clicklink(int, int);
+void openlink(char *);
 
 size_t utf8encode(Rune, char *);
 
