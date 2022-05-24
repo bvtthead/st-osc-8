@@ -1521,22 +1521,24 @@ xdrawglyphfontspecs(const XftGlyphFontSpec *specs, Glyph base, int len, int x, i
 	}
 
 	/* Underline URIs when focused, otherwise underdash */
-	if (base.hl.hov) {
-		XftDrawRect(xw.draw, fg, winx, winy + dc.font.ascent * chscale + 1,
-				width, 1);
-	} else if (base.hl.id != NULL) {
-		XGCValues hlgcv = {
-			.foreground = fg->pixel,
-			.line_width = 1,
-			.line_style = LineOnOffDash,
-			.cap_style = CapNotLast,
-		};
-		GC hlgc = XCreateGC(xw.dpy, XftDrawDrawable(xw.draw),
-				GCForeground | GCLineStyle | GCLineWidth | GCCapStyle,
-				&hlgcv);
-		int liney = winy + dc.font.ascent * chscale + 1;
-		XDrawLine(xw.dpy, XftDrawDrawable(xw.draw), hlgc, winx, liney, winx + width, liney);
-		XFreeGC(xw.dpy, hlgc);
+	if (base.hl != NULL) {
+		if (base.hl->hov) {
+			XftDrawRect(xw.draw, fg, winx, winy + dc.font.ascent * chscale + 1,
+					width, 1);
+		} else {
+			XGCValues hlgcv = {
+				.foreground = fg->pixel,
+				.line_width = 1,
+				.line_style = LineOnOffDash,
+				.cap_style = CapNotLast,
+			};
+			GC hlgc = XCreateGC(xw.dpy, XftDrawDrawable(xw.draw),
+					GCForeground | GCLineStyle | GCLineWidth | GCCapStyle,
+					&hlgcv);
+			int liney = winy + dc.font.ascent * chscale + 1;
+			XDrawLine(xw.dpy, XftDrawDrawable(xw.draw), hlgc, winx, liney, winx + width, liney);
+			XFreeGC(xw.dpy, hlgc);
+		}
 	}
 
 	if (base.mode & ATTR_STRUCK) {
@@ -1691,13 +1693,13 @@ uint8_t
 compareglyphs(Glyph a, Glyph b)
 {
 	uint8_t different = 0;
-	if (a.hl.id == NULL || b.hl.id == NULL) {
-		if (a.hl.id == b.hl.id) {
+	if (a.hl == NULL || b.hl == NULL) {
+		if (a.hl == b.hl) {
 			different = 0;
 		}
 		different = 1;
 	} else {
-		different = strcmp(a.hl.id, b.hl.id) ? 1 : 0;
+		different = strcmp(a.hl->id, b.hl->id) ? 1 : 0;
 	}
 	return ATTRCMP(a, b) || different;
 }

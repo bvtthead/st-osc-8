@@ -63,6 +63,7 @@ typedef struct {
 	char *id;
 	char *uri;
 	uint8_t hov;
+	uint32_t refs;
 } Hyperlink;
 
 #define Glyph Glyph_
@@ -71,7 +72,7 @@ typedef struct {
 	ushort mode;      /* attribute flags */
 	uint32_t fg;      /* foreground  */
 	uint32_t bg;      /* background  */
-	Hyperlink hl;
+	Hyperlink *hl;
 } Glyph;
 
 typedef Glyph *Line;

@@ -654,14 +654,24 @@ void
 tsethov(char *id)
 {
 	int i, j;
+
+	if (id == NULL) {
+		fprintf(stderr, "err: not a valid hyperlink id\n");
+		return;
+	}
+
 	for (i = 0; i < term.row-1; i++) {
 		for (j = 0; j < term.col-1; j++) {
-			if(term.line[i][j].hl.id != NULL) {
-				if (!strcmp(id, term.line[i][j].hl.id)) {
-					term.line[i][j].hl.hov = 1;
-					tsetdirt(i, i);
-				}
+			if (term.line[i][j].hl == NULL)
+				continue;
+			if(term.line[i][j].hl->id == NULL) 
+				continue;
+			if (!strcmp(id, term.line[i][j].hl->id)) {
+				term.line[i][j].hl->hov = 1;
+			} else {
+				term.line[i][j].hl->hov = 0;
 			}
+			tsetdirt(i, i);
 		}
 	}
 }
@@ -672,31 +682,43 @@ tclearhov(void)
 	int i, j;
 	for (i = 0; i < term.row-1; i++) {
 		for (j = 0; j < term.col-1; j++) {
-			if (term.line[i][j].hl.id != NULL) {
-				term.line[i][j].hl.hov = 0;
-				tsetdirt(i, i);
-			}
+			if (term.line[i][j].hl == NULL)
+				continue;
+			term.line[i][j].hl->hov = 0;
+			tsetdirt(i, i);
 		}
 	}
 }
 
 //TODO: figure out when to clean up highlights
-/*
 void
-tfreehl(Line *line)
+tfreehl(Line line)
 {
+	int j;
+	for (j = 0; j < term.col-1; j++) {
+		if (line[j].hl == NULL)
+			continue;
+		if(line[j].hl->refs <= 0) {
+			fprintf(stderr, "hl not cleaned up\n");
+			continue;
+		}
+		line[j].hl->refs -= 1;
+		if(line[j].hl->refs == 0) {
+			free(line[j].hl->id);
+			free(line[j].hl->uri);
+			free(line[j].hl);
+		}
+		line[j].hl = NULL;
+	}
 }
-*/
 
 void
 hoverlink(int x, int y)
 {
 	static int onlink = 0;
 
-	if (term.line[y][x].hl.id != NULL) {
-		if (!onlink) {
-			tsethov(term.line[y][x].hl.id);
-		}
+	if (term.line[y][x].hl != NULL) {
+		tsethov(term.line[y][x].hl->id);
 		onlink = 1;
 	} else {
 		if (onlink) {
@@ -709,9 +731,11 @@ hoverlink(int x, int y)
 void
 clicklink(int x, int y)
 {
-	if (term.line[y][x].hl.uri != NULL) {
-		openlink(term.line[y][x].hl.uri);
-	}
+	if (term.line[y][x].hl == NULL)
+		return;
+	if(term.line[y][x].hl->uri == NULL) 
+		return;
+	openlink(term.line[y][x].hl->uri);
 }
 
 void
@@ -1107,11 +1131,7 @@ treset(void)
 		.mode = ATTR_NULL,
 		.fg = defaultfg,
 		.bg = defaultbg,
-		.hl = (const Hyperlink){
-			.uri = NULL,
-			.id = NULL,
-			.hov = 0
-		}
+		.hl = NULL
 	}, .x = 0, .y = 0, .state = CURSOR_DEFAULT};
 
 	memset(term.tabs, 0, term.col * sizeof(*term.tabs));
@@ -1339,11 +1359,7 @@ tclearregion(int x1, int y1, int x2, int y2)
 			gp->bg = term.c.attr.bg;
 			gp->mode = 0;
 			gp->u = ' ';
-			gp->hl = (const Hyperlink){
-				.uri = NULL,
-				.id = NULL,
-				.hov = 0
-			};
+			gp->hl = NULL;
 		}
 	}
 }
@@ -2047,17 +2063,22 @@ strhandle(void)
 			return;
 		case 8:
 			if (strlen(strescseq.args[2]) > 0) {
-				term.c.attr.hl.uri = xstrdup(strescseq.args[2]);
+				term.c.attr.hl = xmalloc(sizeof(Hyperlink));
+				*term.c.attr.hl = (const Hyperlink){
+					.uri = xstrdup(strescseq.args[2]),
+					.hov = 0,
+					.id = 0,
+					.refs = 0
+				};
 			} else if (strlen(strescseq.args[1]) == 0) {
-				term.c.attr.hl.uri = NULL;
-				term.c.attr.hl.id = NULL;
+				term.c.attr.hl = NULL;
 				return;
 			}
 			if (strlen(strescseq.args[1]) > 0) {
 				idstr = xstrdup(strescseq.args[1]);
 				if(strtok(idstr, "=") != NULL) {
 					if (!strcmp(idstr, "id")) {
-						term.c.attr.hl.id = xstrdup(strtok(NULL, "="));
+						term.c.attr.hl->id = xstrdup(strtok(NULL, "="));
 						free(idstr);
 						return;
 					}
@@ -2066,7 +2087,7 @@ strhandle(void)
 			}
 			idstr = xmalloc(250);
 			snprintf(idstr, 250, "%d-%s", linkcount++, strescseq.args[2]);
-			term.c.attr.hl.id = xstrdup(idstr);
+			term.c.attr.hl->id = xstrdup(idstr);
 			free(idstr);
 			return;
 		}
@@ -2595,6 +2616,9 @@ check_control_code:
 	tsetchar(u, &term.c.attr, term.c.x, term.c.y);
 	term.lastc = u;
 
+	if (term.c.attr.hl != NULL)
+		term.c.attr.hl->refs++;
+
 	if (width == 2) {
 		gp->mode |= ATTR_WIDE;
 		if (term.c.x+1 < term.col) {
@@ -2666,6 +2690,8 @@ tresize(int col, int row)
 	 * memmove because we're freeing the earlier lines
 	 */
 	for (i = 0; i <= term.c.y - row; i++) {
+		tfreehl(term.line[i]);
+		tfreehl(term.alt[i]);
 		free(term.line[i]);
 		free(term.alt[i]);
 	}
@@ -2675,6 +2701,8 @@ tresize(int col, int row)
 		memmove(term.alt, term.alt + i, row * sizeof(Line));
 	}
 	for (i += row; i < term.row; i++) {
+		tfreehl(term.line[i]);
+		tfreehl(term.alt[i]);
 		free(term.line[i]);
 		free(term.alt[i]);
 	}
