@@ -739,29 +739,6 @@ clicklink(int x, int y)
 }
 
 void
-openlink(char *uri)
-{
-	pid_t child, sid;
-	child = fork();
-	if (child == 0) {
-		if (fork() == 0) {
-			sid = setsid();
-			if (sid < 0)
-				exit(1);
-			close(STDIN_FILENO);
-			close(STDOUT_FILENO);
-			close(STDERR_FILENO);
-			execlp("xdg-open", "xdg-open", uri, NULL);
-		}
-		exit(1);
-	}
-	if (child > 0)
-		waitpid(child, NULL, 0);
-	else if (child < 0)
-		fprintf(stderr, "err: failed to spawn child\n");
-}
-
-void
 die(const char *errstr, ...)
 {
 	va_list ap;

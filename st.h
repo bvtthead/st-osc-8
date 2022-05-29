@@ -2,6 +2,7 @@
 
 #include <stdint.h>
 #include <sys/types.h>
+#include "hl.h"
 
 /* macros */
 #define MIN(a, b)		((a) < (b) ? (a) : (b))
@@ -59,13 +60,6 @@ typedef unsigned short ushort;
 
 typedef uint_least32_t Rune;
 
-typedef struct {
-	char *id;
-	char *uri;
-	uint8_t hov;
-	uint32_t refs;
-} Hyperlink;
-
 #define Glyph Glyph_
 typedef struct {
 	Rune u;           /* character code */
@@ -115,7 +109,6 @@ char *getsel(void);
 
 void hoverlink(int, int);
 void clicklink(int, int);
-void openlink(char *);
 
 size_t utf8encode(Rune, char *);
 
